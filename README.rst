@@ -59,3 +59,9 @@ which should run a MCMC sampler for the simulation n°44 (*i.e.* ``data_sacc_000
 ``mflike_example.yaml`` file) using the combination of TT, TE and EE spectra (*i.e.*
 ``polarizations: ['TT', 'TE', 'ET', 'EE']``). The results will be stored in the ``chains/mcmc``
 directory.
+
+Contributors
+------------
+
+.. image:: https://contrib.rocks/image?repo=simonsobs/LAT_MFLike
+   :target: https://github.com/simonsobs/LAT_MFLike/graphs/contributors

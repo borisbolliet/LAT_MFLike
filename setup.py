@@ -4,6 +4,7 @@ setup(
     name="mflike",
     version="1.0",
     description="SO LAT multi-frequency likelihood for cobaya",
+    author="Simons Observatory Collaboration PS Group",
     zip_safe=True,
     packages=find_packages(),
     python_requires=">=3.5",

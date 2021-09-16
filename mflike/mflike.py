@@ -2,9 +2,7 @@
 .. module:: mflike
 
 :Synopsis: Definition of simplistic likelihood for Simons Observatory
-:Authors: Thibaut Louis, Xavier Garrido, Max Abitbol,
-          Erminia Calabrese, Antony Lewis, David Alonso.
-
+:Authors: Simons Observatory Collaboration PS Group
 """
 import os
 from typing import Optional
