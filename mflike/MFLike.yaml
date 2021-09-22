@@ -12,10 +12,6 @@ input_file: null
 # realizations that share the same bandpowers and covariance)
 cov_Bbl_file: null
 
-# Standalone flag to make likelihood working without data
-# (used to only compute foregrounds for instance as done within pspipe)
-standalone: False
-
 # Specify default set of spectra and scale cuts
 # to be used
 defaults:
