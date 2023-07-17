@@ -66,6 +66,8 @@ class MFLike(InstallableLikelihood):
         self.lmax_theory = self.lmax_theory or 9000
         self.log.debug(f"Maximum multipole value: {self.lmax_theory}")
 
+
+
         self.expected_params_fg = [
             "a_tSZ",
             "a_kSZ",
@@ -104,21 +106,34 @@ class MFLike(InstallableLikelihood):
             name_A="given",
             name_B="expected",
         )
+        # print('input params',self.input_params)
+
         if differences:
             raise LoggedError(self.log, f"Configuration error in parameters: {differences}.")
 
+
     def get_requirements(self):
-        return dict(Cl={k: max(c, self.lmax_theory + 1) for k, c in self.lcuts.items()})
+        reqs = dict(Cl={k: max(c, self.lmax_theory + 1) for k, c in self.lcuts.items()})
+        # print("reqs", reqs)
+        # reqs = {}
+        return reqs
 
     def logp(self, **params_values):
+        # print('checking everything works fine here...')
+        # exit(0)
         cl = self.theory.get_Cl(ell_factor=True)
+        # print('got cls from theory code:',cl)
+
         params_values_nocosmo = {
             k: params_values[k] for k in self.expected_params_fg + self.expected_params_nuis
         }
         return self.loglike(cl, **params_values_nocosmo)
 
     def loglike(self, cl, **params_values_nocosmo):
+        print('computing loglike')
+        # exit(0)
         ps_vec = self._get_power_spectra(cl, **params_values_nocosmo)
+        print(len(cl),np.shape(ps_vec),np.shape(self.inv_cov))
         delta = self.data_vec - ps_vec
         logp = -0.5 * (delta @ self.inv_cov @ delta)
         logp += self.logp_const
@@ -134,6 +149,9 @@ class MFLike(InstallableLikelihood):
         # Read data
         input_fname = os.path.join(self.data_folder, self.input_file)
         s = sacc.Sacc.load_fits(input_fname)
+
+
+        print('self.input_file',self.input_file)
 
         # Read extra file containing covariance and windows if needed.
         cbbl_extra = False
@@ -224,8 +242,14 @@ class MFLike(InstallableLikelihood):
         len_compressed = 0
         for spectrum in data["spectra"]:
             exp_1, exp_2, pols, scls, symm = get_cl_meta(spectrum)
+            # print('--------')
+            # print(spectrum,exp_1, exp_2, pols, scls, symm)
+            # print('--------')
             for pol in pols:
                 tname_1, tname_2, dtype = get_sacc_names(pol, exp_1, exp_2)
+                # print('--------')
+                # print('tname_1, tname_2',tname_1, tname_2)
+                # print('--------')
                 lmin, lmax = scls[pol]
                 ind = s.indices(
                     dtype,  # Power spectrum type
@@ -351,14 +375,35 @@ class MFLike(InstallableLikelihood):
     def _get_power_spectra(self, cl, **params_values_nocosmo):
         # Get Cl's from the theory code
         Dls = {s: cl[s][self.l_bpws] for s, _ in self.lcuts.items()}
+        # print('Dls start:',Dls['tt'][:10],len(Dls['tt']))
+        # print('Dls end:',Dls['tt'][::-1][:10],len(Dls['tt']))
+        # print('self.l_bpws',self.l_bpws,self.lcuts)
+        # print(self.spec_meta)
+        # exit(0)
+
+
         DlsObs = self.ThFo.get_modified_theory(Dls, **params_values_nocosmo)
 
         ps_vec = np.zeros_like(self.data_vec)
+        std_err_all = np.sqrt(np.diag(self.cov))
+        spec_dict_to_save = {}
+        spec_dict_to_save['tt'] = {}
+        spec_dict_to_save['te'] = {}
+        spec_dict_to_save['ee'] = {}
         for m in self.spec_meta:
             p = m["pol"]
             i = m["ids"]
             w = m["bpw"].weight.T
             clt = w @ DlsObs[p, m["t1"], m["t2"]]
             ps_vec[i] = clt
-
+            if m['t1'] == m['t2']:
+                spec_dict_to_save[m['pol']][m['t1']] = {
+                'ids' : m["ids"],
+                'cls' : clt,
+                'std' : std_err_all[m["ids"]],
+                'leff' : m['leff']
+                }
+                # print(m['pol'],m['t1'],m["ids"],clt,std_err_all[m["ids"]])
+        # print(spec_dict_to_save)
+        # np.save('class_v320_uha_22may23_nonu.postmflike.npy',spec_dict_to_save)
         return ps_vec
