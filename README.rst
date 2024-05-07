@@ -10,9 +10,11 @@ An external likelihood using `cobaya <https://github.com/CobayaSampler/cobaya>`_
 .. image:: https://img.shields.io/github/actions/workflow/status/simonsobs/LAT_MFLike/testing.yml?branch=master
    :target: https://github.com/simonsobs/LAT_MFLike/actions
 
+.. image:: https://readthedocs.org/projects/lat-mflike/badge/?version=latest
+   :target: https://lat-mflike.readthedocs.io/en/latest/?badge=latest
+
 .. image:: https://mybinder.org/badge_logo.svg
    :target: https://mybinder.org/v2/gh/simonsobs/LAT_MFLike/master?filepath=notebooks%2Fmflike_tutorial.ipynb
-
 
 .. image:: https://codecov.io/gh/simonsobs/LAT_MFLike/branch/master/graph/badge.svg?token=qrrVcbNCs5
    :target: https://codecov.io/gh/simonsobs/LAT_MFLike
@@ -86,3 +88,9 @@ Simulation releases
 - ``v0.6`` release make use of CMB map based simulations (see https://github.com/simonsobs/map_based_simulations/blob/master/201911_lensed_cmb/README.md). Only temperature foregrounds were considered.
 
 Releases prior to ``v0.6`` version were development simulations and should not be used for simulation analysis.
+
+Contributors
+------------
+
+.. image:: https://contrib.rocks/image?repo=simonsobs/LAT_MFLike
+   :target: https://github.com/simonsobs/LAT_MFLike/graphs/contributors

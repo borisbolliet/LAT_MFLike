@@ -109,3 +109,4 @@ chains/mflike_test_bp.1.txt
 chains/mflike_test_bp.covmat
 chains/mflike_test_bp.input.yaml
 chains/mflike_test_bp.updated.yaml
+/mflike/_version.py

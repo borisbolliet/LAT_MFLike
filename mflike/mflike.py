@@ -1,11 +1,24 @@
-"""
+r"""
 .. module:: mflike
 
 :Synopsis: Definition of simplistic likelihood for Simons Observatory
-:Authors: Thibaut Louis, Xavier Garrido, Max Abitbol,
-          Erminia Calabrese, Antony Lewis, David Alonso.
+:Authors: Simons Observatory Collaboration PS Group
+
+MFLike is a multi frequency likelihood code interfaced with the Cobaya
+sampler and a theory Boltzmann code such as CAMB, CLASS or Cosmopower.
+The ``MFLike`` likelihood class reads the data file (in ``sacc`` format)
+and all the settings
+for the MCMC run (such as file paths, :math:`\ell` ranges, experiments
+and frequencies to be used, parameters priors...)
+from the ``MFLike.yaml`` file.
+
+The theory :math:`C_{\ell}` are then summed to the (possibly frequency
+integrated) foreground power spectra and modified by systematic effects
+in the ``TheoryForge`` class. The foreground spectra are computed
+through ``fgspectra``.
 
 """
+
 import os
 from typing import Optional
 
@@ -80,14 +93,21 @@ class MFLike(InstallableLikelihood):
             "a_pste",
             "xi",
             "T_d",
+            "beta_s",
+            "alpha_s",
+            "T_effd",
+            "beta_d",
+            "alpha_dT",
+            "alpha_dE",
+            "alpha_p",
         ]
 
         self.expected_params_nuis = ["calG_all"]
         for f in self.experiments:
             self.expected_params_nuis += [
                 f"bandint_shift_{f}",
-                f"cal_{f}",
                 f"calT_{f}",
+                f"cal_{f}",
                 f"calE_{f}",
                 f"alpha_{f}",
             ]
@@ -95,8 +115,28 @@ class MFLike(InstallableLikelihood):
         self.ThFo = TheoryForge(self)
         self.log.info("Initialized!")
 
+    def initialize_non_sampled_params(self):
+        """
+        Allows for systematic params such as polarization angles and ``calT``
+        not to be sampled and not to be required
+        """
+        self.non_sampled_params = {}
+        for exp in self.experiments:
+            self.non_sampled_params.update({f"calT_{exp}": 1.0, f"alpha_{exp}": 0.0})
+
     def initialize_with_params(self):
         # Check that the parameters are the right ones
+        self.initialize_non_sampled_params()
+
+        # Remove the parameters if it appears in the input/samples ones
+        for par in self.input_params:
+            self.non_sampled_params.pop(par, None)
+
+        # Finally set the list of nuisance params
+        self.expected_params_nuis = [
+            par for par in self.expected_params_nuis if par not in self.non_sampled_params
+        ]
+
         differences = are_different_params_lists(
             self.input_params,
             self.expected_params_fg + self.expected_params_nuis,
@@ -107,16 +147,39 @@ class MFLike(InstallableLikelihood):
             raise LoggedError(self.log, f"Configuration error in parameters: {differences}.")
 
     def get_requirements(self):
+        r"""
+        Gets the theory :math:`D_{\ell}` from the Boltzmann solver code used,
+        for the :math:`\ell` range up to the :math:`\ell_{max}` specified in the yaml
+
+        :return: the dictionary of theory :math:`D_{\ell}`
+        """
         return dict(Cl={k: max(c, self.lmax_theory + 1) for k, c in self.lcuts.items()})
 
     def logp(self, **params_values):
-        cl = self.theory.get_Cl(ell_factor=True)
+        cl = self.provider.get_Cl(ell_factor=True)
         params_values_nocosmo = {
             k: params_values[k] for k in self.expected_params_fg + self.expected_params_nuis
         }
+
         return self.loglike(cl, **params_values_nocosmo)
 
     def loglike(self, cl, **params_values_nocosmo):
+        """
+        Computes the gaussian log-likelihood
+
+        :param cl: the dictionary of theory + foregrounds :math:`D_{\ell}`
+        :param params_values_nocosmo: the dictionary of required foreground + systematic parameters
+
+        :return: the exact loglikelihood :math:`\ln \mathcal{L}`
+        """
+        # This is needed if someone calls the function without initializing the likelihood
+        # (typically a call with a precomputed Cl and no cobaya initialization steps e.g
+        # test_mflike)
+        if not hasattr(self, "non_sampled_params"):
+            self.initialize_non_sampled_params()
+
+        params_values_nocosmo = self.non_sampled_params | params_values_nocosmo
+
         ps_vec = self._get_power_spectra(cl, **params_values_nocosmo)
         delta = self.data_vec - ps_vec
         logp = -0.5 * (delta @ self.inv_cov @ delta)
@@ -127,6 +190,16 @@ class MFLike(InstallableLikelihood):
         return logp
 
     def prepare_data(self):
+        r"""
+        Reads the sacc data, extracts the data tracers,
+        trims the spectra and covariance according to the :math:`\ell` scales
+        set in the input file, inverts the covariance, extracts bandpass info from
+        the sacc file.
+        It fills the list ``self.spec_meta`` (used throughout the code) of
+        dictionaries with info about polarization, arrays combination, :math:`\ell`
+        range, bandpowers and :math:`D_{\ell}` for each power spectrum required
+        in the yaml.
+        """
         import sacc
 
         data = self.data
@@ -164,10 +237,15 @@ class MFLike(InstallableLikelihood):
         }
 
         def get_cl_meta(spec):
-            # For each of the entries of the `spectra` section of the
-            # yaml file, extract the relevant information: experiments,
-            # polarization combinations, scale cuts and
-            # whether TE should be symmetrized.
+            """
+            Lower-level function of `prepare_data`.
+            For each of the entries of the `spectra` section of the
+            yaml file, extracts the relevant information: channel,
+            polarization combinations, scale cuts and
+            whether TE should be symmetrized.
+
+            :param spec: the dictionary ``data["spectra"]``
+            """
             exp_1, exp_2 = spec["experiments"]
             # Read off polarization channel combinations
             pols = spec.get("polarizations", default_cuts["polarizations"]).copy()
@@ -192,10 +270,20 @@ class MFLike(InstallableLikelihood):
             return exp_1, exp_2, pols, scls, symm
 
         def get_sacc_names(pol, exp_1, exp_2):
-            # Translate the polarization combination and experiment
-            # names of a given entry in the `spectra`
-            # part of the input yaml file into the names expected
-            # in the SACC files.
+            r"""
+            Lower-level function of `prepare_data`.
+            Translates the polarization combination and channel
+            name of a given entry in the `spectra`
+            part of the input yaml file into the names expected
+            in the SACC files.
+
+            :param pol: temperature or polarization fields, i.e. 'TT', 'TE'
+            :param exp_1: frequency array of map 1
+            :param exp_2: frequency array of map 2
+
+            :return: tracer name 1, tracer name 2, string for :math:`C_{\ell}`
+                     type (whether temperature or polarization)
+            """
             tname_1 = exp_1
             tname_2 = exp_2
             p1, p2 = pol
@@ -286,7 +374,9 @@ class MFLike(InstallableLikelihood):
                     # will all be sampled at the same ells.
                     self.l_bpws = ws.values
 
-                # Symmetrize if needed.
+                # Symmetrize if needed. If symmetrize = True, the "ET" polarization
+                # is eliminated by the polarization list and the TE spectrum becomes
+                # (TE + ET)/2. The associated spec_meta dict will have "hasYX_xsp": False
                 if (pol in ["TE", "ET"]) and symm:
                     pol2 = pol[::-1]
                     pols.remove(pol2)
@@ -315,8 +405,8 @@ class MFLike(InstallableLikelihood):
                     {
                         "ids": (index_sofar + np.arange(cls.size, dtype=int)),
                         "pol": ppol_dict[pol],
-                        "hasYX_xsp": pol
-                        in ["ET", "BE", "BT"],  # This is necessary for handling symmetrization
+                        # this flag is true for pol = ET, BE, BT
+                        "hasYX_xsp": pol in ["ET", "BE", "BT"],
                         "t1": exp_1,
                         "t2": exp_2,
                         "leff": ls,  #
@@ -348,7 +438,18 @@ class MFLike(InstallableLikelihood):
         self.log.info(f"Number of bins used: {self.data_vec.size}")
 
     def _get_power_spectra(self, cl, **params_values_nocosmo):
-        # Get Cl's from the theory code
+        r"""
+        Gets the theory :math:`D_{\ell}`, adds foregrounds :math:`D_{\ell}`
+        and applies possible systematic effects through the ``get_modified_theory``
+        function from the ``TheoryForge`` class. The spectra get then binned
+        like the data.
+
+        :param cl: the dictionary of theory :math:`D_{\ell}`
+        :param params_values_nocosmo: the dictionary of required foregrounds
+                                      and systematics parameters
+
+        :return: the binned data vector
+        """
         Dls = {s: cl[s][self.l_bpws] for s, _ in self.lcuts.items()}
         DlsObs = self.ThFo.get_modified_theory(Dls, **params_values_nocosmo)
 
@@ -357,7 +458,13 @@ class MFLike(InstallableLikelihood):
             p = m["pol"]
             i = m["ids"]
             w = m["bpw"].weight.T
-            clt = w @ DlsObs[p, m["t1"], m["t2"]]
+            # If symmetrize = False, the (ET, exp1, exp2) spectrum
+            # will have the flag m["hasYX_xsp"] = True.
+            # In this case, the power spectrum
+            # is computed as DlsObs["te", m["t2"], m["t1"]], to associate
+            # T --> exp2, E --> exp1
+            dls_obs = DlsObs[p, m["t2"], m["t1"]] if m["hasYX_xsp"] else DlsObs[p, m["t1"], m["t2"]]
+            clt = w @ dls_obs
             ps_vec[i] = clt
 
         return ps_vec

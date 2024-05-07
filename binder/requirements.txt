@@ -1,3 +1,4 @@
 matplotlib
 camb
-mflike @ git+https://github.com/simonsobs/LAT_MFLike@master#egg=mflike
+mflike
+seaborn
